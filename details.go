@@ -8,6 +8,65 @@ import (
 const apiTst = "http://testoperaciones.pricetravel.com.mx/api/restfulbck/index.php/"
 const apiProd = "https://operaciones.pricetravel.com.mx/api/restful/index.php/"
 
+const dtDone = "UPDATE asesores_ausentismos a LEFT JOIN asesores_programacion b ON a.asesor = b.asesor AND a.Fecha = b.Fecha SET pdt_done = COALESCE(TIME_TO_SEC(TIMEDIFF(IF(CHECKLOG(a.Fecha, a.asesor, 'out') > je, je, CHECKLOG(a.Fecha, a.asesor, 'out')), IF(CHECKLOG(a.Fecha, a.asesor, 'in') < js, js, CHECKLOG(a.Fecha, a.asesor, 'in')))) / TIME_TO_SEC(TIMEDIFF(je, js)) * 8,0) WHERE ausentismo = 19 AND a = 1 AND a.Fecha >= ADDDATE(CURDATE(), - 60)"
+const updtScheds = "SELECT TIMETODATETIME(id) FROM `Historial Programacion` WHERE LastUpdate >= CAST(CONCAT(CURDATE(),' 00:00:00') as DATETIME)"
+const updtHX = `UPDATE asesores_programacion 
+					SET  
+						phx_done = IF(COALESCE(TIME_TO_SEC(TIMEDIFF(IF(CHECKLOG(Fecha, asesor, 'in') < x1e 
+															AND CHECKLOG(Fecha, asesor, 'out') > x1s, 
+														IF(CHECKLOG(Fecha, asesor, 'out') > x1e, 
+															x1e, 
+															CHECKLOG(Fecha, asesor, 'out')), 
+														NULL), 
+													IF(CHECKLOG(Fecha, asesor, 'in') < x1e 
+															AND CHECKLOG(Fecha, asesor, 'out') > x1s, 
+														IF(CHECKLOG(Fecha, asesor, 'in') < x1s, 
+															x1s, 
+															CHECKLOG(Fecha, asesor, 'in')), 
+														NULL))) / 60 / 60, 
+									0) + COALESCE(TIME_TO_SEC(TIMEDIFF(IF(CHECKLOG(Fecha, asesor, 'in') < x2e 
+															AND CHECKLOG(Fecha, asesor, 'out') > x2s, 
+														IF(CHECKLOG(Fecha, asesor, 'out') > x2e, 
+															x2e, 
+															CHECKLOG(Fecha, asesor, 'out')), 
+														NULL), 
+													IF(CHECKLOG(Fecha, asesor, 'in') < x2e 
+															AND CHECKLOG(Fecha, asesor, 'out') > x2s, 
+														IF(CHECKLOG(Fecha, asesor, 'in') < x2s, 
+															x2s, 
+															CHECKLOG(Fecha, asesor, 'in')), 
+														NULL))) / 60 / 60, 
+									0) > COALESCE(TIMEDIFF(x1e, x1s), 0) + COALESCE(TIMEDIFF(x2e, x2s), 0), 
+							COALESCE(TIMEDIFF(x1e, x1s), 0) + COALESCE(TIMEDIFF(x2e, x2s), 0), 
+							COALESCE(TIME_TO_SEC(TIMEDIFF(IF(CHECKLOG(Fecha, asesor, 'in') < x1e 
+															AND CHECKLOG(Fecha, asesor, 'out') > x1s, 
+														IF(CHECKLOG(Fecha, asesor, 'out') > x1e, 
+															x1e, 
+															CHECKLOG(Fecha, asesor, 'out')), 
+														NULL), 
+													IF(CHECKLOG(Fecha, asesor, 'in') < x1e 
+															AND CHECKLOG(Fecha, asesor, 'out') > x1s, 
+														IF(CHECKLOG(Fecha, asesor, 'in') < x1s, 
+															x1s, 
+															CHECKLOG(Fecha, asesor, 'in')), 
+														NULL))) / 60 / 60, 
+									0) + COALESCE(TIME_TO_SEC(TIMEDIFF(IF(CHECKLOG(Fecha, asesor, 'in') < x2e 
+															AND CHECKLOG(Fecha, asesor, 'out') > x2s, 
+														IF(CHECKLOG(Fecha, asesor, 'out') > x2e, 
+															x2e, 
+															CHECKLOG(Fecha, asesor, 'out')), 
+														NULL), 
+													IF(CHECKLOG(Fecha, asesor, 'in') < x2e 
+															AND CHECKLOG(Fecha, asesor, 'out') > x2s, 
+														IF(CHECKLOG(Fecha, asesor, 'in') < x2s, 
+															x2s, 
+															CHECKLOG(Fecha, asesor, 'in')), 
+														NULL))) / 60 / 60, 
+									0)) 
+					WHERE 
+						(x1s != x1e OR x2s != x2e) 
+							AND x1s >= ADDDATE(CURDATE(), - 20) `
+
 func runBackProcess() {
 
 	// Inicio de LiveCalls
@@ -16,9 +75,11 @@ func runBackProcess() {
 	fmt.Println()
 	mailing()
 	fmt.Println()
-	updateSchedules()
+	queryExe("Update Schedules", updtScheds)
 	fmt.Println()
-	updateHX()
+	queryExe("Update HX", updtHX)
+	fmt.Println()
+	queryExe("Update DTs", dtDone)
 	fmt.Println()
 
 	flag := prReload(30)
@@ -29,7 +90,7 @@ func runBackProcess() {
 
 func mailing() {
 
-	fmt.Printf("================== Mail lists START ==================\n")
+	printFrame("Mail List", true)
 	formatPrint("", false)
 
 	params := url.Values{}
@@ -49,107 +110,9 @@ func mailing() {
 	// Revision de cumpleaneros Mes
 	getDetail("Revision de cumpleañeros Mes:", "GET", "Mailing/cumpleMes", apiTst, params)
 
-	fmt.Println("|")
-	fmt.Printf("================== Mail lists   END ==================\n")
-
-}
-
-func updateSchedules() {
-
-	fmt.Printf("=============== Update Schedules START ===============\n")
 	formatPrint("", false)
-	formatPrint("Corriendo Query:", true)
+	printFrame("Mail List", false)
 
-	u := "SELECT TIMETODATETIME(id) FROM `Historial Programacion` WHERE LastUpdate >= CAST(CONCAT(CURDATE(),' 00:00:00') as DATETIME)"
-	r, err := fDb.Exec(u)
-	if err != nil {
-		formatPrint(fmt.Sprintf("       ERROR!: %s", err.Error()), false)
-		formatPrint("", false)
-	} else {
-		formatPrint(fmt.Sprintf("       OK!"), false)
-		formatPrint("", false)
-	}
-	_ = r
-
-	formatPrint("", false)
-	fmt.Printf("=============== Update Schedules   END ===============\n")
-}
-
-func updateHX() {
-
-	fmt.Printf("================== Update HX  START ==================\n")
-	formatPrint("", false)
-	formatPrint("Corriendo Query:", true)
-	formatPrint("", false)
-
-	u := `UPDATE asesores_programacion 
-    SET  
-        phx_done = IF(COALESCE(TIME_TO_SEC(TIMEDIFF(IF(CHECKLOG(Fecha, asesor, 'in') < x1e 
-                                            AND CHECKLOG(Fecha, asesor, 'out') > x1s, 
-                                        IF(CHECKLOG(Fecha, asesor, 'out') > x1e, 
-                                            x1e, 
-                                            CHECKLOG(Fecha, asesor, 'out')), 
-                                        NULL), 
-                                    IF(CHECKLOG(Fecha, asesor, 'in') < x1e 
-                                            AND CHECKLOG(Fecha, asesor, 'out') > x1s, 
-                                        IF(CHECKLOG(Fecha, asesor, 'in') < x1s, 
-                                            x1s, 
-                                            CHECKLOG(Fecha, asesor, 'in')), 
-                                        NULL))) / 60 / 60, 
-                    0) + COALESCE(TIME_TO_SEC(TIMEDIFF(IF(CHECKLOG(Fecha, asesor, 'in') < x2e 
-                                            AND CHECKLOG(Fecha, asesor, 'out') > x2s, 
-                                        IF(CHECKLOG(Fecha, asesor, 'out') > x2e, 
-                                            x2e, 
-                                            CHECKLOG(Fecha, asesor, 'out')), 
-                                        NULL), 
-                                    IF(CHECKLOG(Fecha, asesor, 'in') < x2e 
-                                            AND CHECKLOG(Fecha, asesor, 'out') > x2s, 
-                                        IF(CHECKLOG(Fecha, asesor, 'in') < x2s, 
-                                            x2s, 
-                                            CHECKLOG(Fecha, asesor, 'in')), 
-                                        NULL))) / 60 / 60, 
-                    0) > COALESCE(TIMEDIFF(x1e, x1s), 0) + COALESCE(TIMEDIFF(x2e, x2s), 0), 
-            COALESCE(TIMEDIFF(x1e, x1s), 0) + COALESCE(TIMEDIFF(x2e, x2s), 0), 
-            COALESCE(TIME_TO_SEC(TIMEDIFF(IF(CHECKLOG(Fecha, asesor, 'in') < x1e 
-                                            AND CHECKLOG(Fecha, asesor, 'out') > x1s, 
-                                        IF(CHECKLOG(Fecha, asesor, 'out') > x1e, 
-                                            x1e, 
-                                            CHECKLOG(Fecha, asesor, 'out')), 
-                                        NULL), 
-                                    IF(CHECKLOG(Fecha, asesor, 'in') < x1e 
-                                            AND CHECKLOG(Fecha, asesor, 'out') > x1s, 
-                                        IF(CHECKLOG(Fecha, asesor, 'in') < x1s, 
-                                            x1s, 
-                                            CHECKLOG(Fecha, asesor, 'in')), 
-                                        NULL))) / 60 / 60, 
-                    0) + COALESCE(TIME_TO_SEC(TIMEDIFF(IF(CHECKLOG(Fecha, asesor, 'in') < x2e 
-                                            AND CHECKLOG(Fecha, asesor, 'out') > x2s, 
-                                        IF(CHECKLOG(Fecha, asesor, 'out') > x2e, 
-                                            x2e, 
-                                            CHECKLOG(Fecha, asesor, 'out')), 
-                                        NULL), 
-                                    IF(CHECKLOG(Fecha, asesor, 'in') < x2e 
-                                            AND CHECKLOG(Fecha, asesor, 'out') > x2s, 
-                                        IF(CHECKLOG(Fecha, asesor, 'in') < x2s, 
-                                            x2s, 
-                                            CHECKLOG(Fecha, asesor, 'in')), 
-                                        NULL))) / 60 / 60, 
-                    0)) 
-    WHERE 
-        (x1s != x1e OR x2s != x2e) 
-            AND x1s >= ADDDATE(CURDATE(), - 20) `
-	r, err := fDb.Exec(u)
-	if err != nil {
-		formatPrint(fmt.Sprintf("       ERROR!: %s", err.Error()), false)
-		formatPrint("", false)
-	} else {
-		formatPrint(fmt.Sprintf("       OK!"), false)
-		formatPrint("", false)
-	}
-	_ = r
-
-	formatPrint("", false)
-	fmt.Printf("================== Update HX    END ==================\n")
 }
 
 func getDetail(n string, tp string, route string, uri string, params url.Values) {
@@ -157,28 +120,27 @@ func getDetail(n string, tp string, route string, uri string, params url.Values)
 	block := n
 	formatPrint(block, true)
 
+	sp.Start()
 	m, err := getAPI(tp, route, uri, params)
-	if err != nil {
-		formatPrint(fmt.Sprintf("       ERROR!: %s", err.Error()), false)
-		formatPrint("", false)
-	} else {
-		formatPrint(fmt.Sprintf("       OK!"), false)
-		formatPrint(fmt.Sprintf("        %s", m), false)
-		formatPrint("", false)
-	}
+	sp.Stop()
+
+	printStatus(m, err)
 }
 
-func formatPrint(t string, f bool) {
-	v := " "
-	if f {
-		v = "-"
-	}
-	d := fmt.Sprintf("|%s %s", v, t)
-	l := 54 - len(d)
-	fmt.Printf("%s", d)
-	for i := 0; i < l; i++ {
-		fmt.Printf("%s", " ")
-	}
-	fmt.Printf("%s\n", "|")
+func queryExe(tl string, qr string) {
+
+	printFrame(tl, true)
+	formatPrint("", false)
+	formatPrint("Corriendo Query:", true)
+
+	sp.Start()
+	r, err := fDb.Exec(qr)
+	sp.Stop()
+
+	printStatus("", err)
+	_ = r
+
+	formatPrint("", false)
+	printFrame(tl, false)
 
 }

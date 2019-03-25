@@ -7,8 +7,12 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"regexp"
 	"time"
+	"unicode/utf8"
 
+	"github.com/briandowns/spinner"
+	"github.com/eidolon/wordwrap"
 	_ "github.com/go-sql-driver/mysql"
 	"gopkg.in/cheggaaa/pb.v2"
 )
@@ -39,6 +43,7 @@ var functions = []string{
 
 var fDb, fDbXp *sql.DB
 var err error
+var sp *spinner.Spinner
 
 func main() {
 
@@ -57,18 +62,22 @@ func main() {
 		return
 	}
 
+	sp = spinner.New(spinner.CharSets[43], 100*time.Millisecond) // Build our new spinner
+	sp.Color("fgHiGreen")
 	// Conexión a bases de datos
 
 	fDb, err = sql.Open("mysql", dbCon[0])
 	if err != nil {
-		panic(err.Error())
+		fmt.Printf(err.Error())
+
 	}
 	fDb.SetMaxOpenConns(4)
 	fDb.SetMaxIdleConns(0)
 	fDb.SetConnMaxLifetime(time.Second * 10)
 	fDbXp, err = sql.Open("mysql", dbCon[1])
 	if err != nil {
-		panic(err.Error())
+		fmt.Printf(err.Error())
+
 	}
 	fDbXp.SetMaxOpenConns(4)
 	fDbXp.SetMaxIdleConns(4)
@@ -91,6 +100,7 @@ func main() {
 
 func liveCalls() {
 
+	sp.Stop()
 	// Validacion de inputs
 	if len(os.Args) < 3 {
 		printInstructions("Ingresa los paises que deseas obtener, separados por un espacio:\n")
@@ -138,12 +148,11 @@ func liveCalls() {
 	runLiveCalls(paises)
 	fmt.Println()
 
-	if exitPrompt("Reinicia en 1 segundo...", 1) {
-		printInstructions("Programa finalizado\n\n")
-		return
+	flag := prReload(1)
+	if flag {
+		liveCalls()
 	}
 
-	liveCalls()
 }
 
 func printSlice(s []string) {
@@ -254,4 +263,70 @@ func prReload(t int) bool {
 		time.Sleep(time.Second)
 	}
 	return true
+}
+
+func formatPrint(t string, f bool) {
+	v := " "
+	if f {
+		v = "-"
+	}
+	d := fmt.Sprintf("|%s %s", v, t)
+	l := 54 - utf8.RuneCountInString(d)
+	fmt.Printf("%s", d)
+	for i := 0; i < l; i++ {
+		fmt.Printf("%s", " ")
+	}
+	fmt.Printf("%s\n", "|")
+
+}
+
+func printFrame(tl string, tp bool) {
+
+	var fr, tpS string
+
+	if tp {
+		tpS = "START"
+	} else {
+		tpS = "END"
+	}
+
+	if utf8.RuneCountInString(tl)%2 != 0 {
+		tl += " "
+	}
+	tl = fmt.Sprintf("%s %s", tl, tpS)
+	tlLen := (54 - (utf8.RuneCountInString(tl) + 2)) / 2
+
+	for i := 1; i <= tlLen; i++ {
+		fr += "="
+	}
+
+	fmt.Printf("%[1]s %[2]s %[1]s\n", fr, tl)
+}
+
+func wrapTxt(t string, ln int) (m string) {
+	var fr string
+	wrapper := wordwrap.Wrapper(ln, false)
+	t = wrapper(t)
+
+	re := regexp.MustCompile(`\r?\n`)
+	m = re.ReplaceAllString(t, "\n|            ")
+
+	for i := 1; i <= 53-len(m); i++ {
+		fr += " "
+	}
+
+	return
+}
+
+func printStatus(m string, err error) {
+	if err != nil {
+		formatPrint(wrapTxt(fmt.Sprintf("       ERROR!: %s", err.Error()), 40), false)
+		formatPrint("", false)
+	} else {
+		formatPrint(fmt.Sprintf("       OK!"), false)
+		if m != "" {
+			formatPrint(fmt.Sprintf("       %s", m), false)
+		}
+		formatPrint("", false)
+	}
 }

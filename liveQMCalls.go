@@ -13,7 +13,10 @@ import (
 
 func runLiveCalls(paises []string) {
 
-	fmt.Printf("======== Calls  Live START ========\n")
+	tl := "Calls Live"
+
+	printFrame(tl, true)
+	formatPrint("", false)
 
 	// // Conexión a bases de datos
 	// db, err := sql.Open("mysql", dbCon[0])
@@ -25,17 +28,12 @@ func runLiveCalls(paises []string) {
 	// 	panic(err.Error())
 	// }
 
-	fmt.Printf("|- Obteniendo colas OUT.")
-
+	formatPrint("Getting OUT queues", true)
 	qOut, err := fDb.Query("SELECT queue FROM Cola_Skill WHERE direction=2")
-	if err != nil {
-		fmt.Printf("Error al obtener colas Outbound\n")
-		fmt.Printf("|- Error: %s\n", err.Error())
-		return
-	}
-	fmt.Printf(".")
 	defer qOut.Close()
+	printStatus("", err)
 
+	formatPrint("Building OUT queues", true)
 	var outQs []string
 	for qOut.Next() {
 		var queue string
@@ -46,57 +44,40 @@ func runLiveCalls(paises []string) {
 		}
 		outQs = append(outQs, queue)
 	}
-	fmt.Printf(". OK!\n")
+	printStatus("", err)
 
 	for _, pais := range paises {
-
-		fmt.Printf("|- %s", pais)
 
 		base := "liveMonitor"
 		if pais == "MX" {
 			base += "MX"
 		}
+
+		formatPrint(fmt.Sprintf("Flag update to 1 %s", pais), true)
 		updtFlagQ := fmt.Sprintf("UPDATE %s SET updateFlag = %d", base, 0)
 		r, err := fDbXp.Exec(updtFlagQ)
-		if err != nil {
-			fmt.Printf("Error al cambiar el status del flag %s\n", pais)
-			fmt.Printf("|- Error: %s\n", err.Error())
-			return
-		}
 		_ = r
-		fmt.Printf(".")
+		printStatus("", err)
 
+		formatPrint(fmt.Sprintf("Building Live Calls query %s", pais), true)
 		query, qTn, err := qmCalls(pais, outQs, base)
-		if err != nil {
-			fmt.Printf("Error al correr llamadas en vivo %s\n", pais)
-			fmt.Printf("|- Error: %s\n", err.Error())
-			return
-		}
-		fmt.Printf(".")
-
 		_ = query
-		q, err := fDbXp.Exec(query)
-		if err != nil {
-			fmt.Printf("Error al actualizar liveCalls %s\n", pais)
-			fmt.Printf(". Error: %s\n", err.Error())
-			return
-		}
-		_ = q
-		fmt.Printf(".")
+		printStatus("", err)
 
+		formatPrint(fmt.Sprintf("Inserting to DB %s", pais), true)
+		q, err := fDbXp.Exec(query)
+		_ = q
+		printStatus("", err)
+
+		formatPrint(fmt.Sprintf("Updating missing regs %s", pais), true)
 		updtFlagQ = fmt.Sprintf(qTn)
 		ru, err := fDbXp.Exec(updtFlagQ)
-		if err != nil {
-			fmt.Printf("Error al setear fields en NULL %s\n", pais)
-			fmt.Printf("|- Error: %s\n", err.Error())
-			// fmt.Printf("%s\n", qTn)
-			return
-		}
 		_ = ru
-		fmt.Printf(". %5s\n", "OK!")
+		printStatus("", err)
 	}
 
-	fmt.Printf("======== Calls  Live   END ========\n")
+	formatPrint("", false)
+	printFrame(tl, false)
 
 }
 
