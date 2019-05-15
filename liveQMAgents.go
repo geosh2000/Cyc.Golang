@@ -1,11 +1,8 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"net/http"
 	"net/url"
 	"strings"
 )
@@ -30,15 +27,19 @@ func runAgentCalls(paises []string) {
 			base += "MX"
 		}
 
+		formatPrint(fmt.Sprintf("Build query for insert %s", pais), true)
+		query, err := qmAgents(pais, base)
+		_ = query
+		printStatus("", err)
+
+		if err != nil {
+			continue
+		}
+
 		formatPrint(fmt.Sprintf("Flag update to 1 %s", pais), true)
 		updtFlagQ := fmt.Sprintf("UPDATE %s SET updateFlag = %d", base, 0)
 		r, err := fDbXp.Exec(updtFlagQ)
 		_ = r
-		printStatus("", err)
-
-		formatPrint(fmt.Sprintf("Build query for insert %s", pais), true)
-		query, err := qmAgents(pais, base)
-		_ = query
 		printStatus("", err)
 
 		formatPrint(fmt.Sprintf("Insert to DB %s", pais), true)
@@ -59,6 +60,7 @@ func runAgentCalls(paises []string) {
 }
 
 func qmAgents(pais string, b string) (query string, err error) {
+
 	//Get data from QM (API)
 	block := "RealTimeDO.RtAgentsRaw"
 	prefix := 4
@@ -71,34 +73,31 @@ func qmAgents(pais string, b string) (query string, err error) {
 		uri = uriCO[0]
 	}
 
-	req, err := http.NewRequest("POST", uri, bytes.NewBufferString(data.Encode()))
-	req.Header.Set("content-type", `application/x-www-form-urlencoded; param=value`)
-	req.Header.Add("Authorization", `Basic cm9ib3Q6cm9ib3Q=`)
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return
-	}
-	defer resp.Body.Close()
-
-	//Convert response to readable array
-	body, _ := ioutil.ReadAll(resp.Body)
+	body, fields, _, err := getFromQm("POST", uri, block, prefix, true, data)
 	if err != nil {
 		return
 	}
 
 	var posts map[string]interface{}
+
+	if body == nil {
+		err = fmt.Errorf("Información Nula")
+		return
+	}
+
 	json.Unmarshal(body, &posts)
 
 	// Get Fields
-	var fields []string
+
 	fNames := "updateFlag"
 	for _, v := range posts[block].([]interface{})[0].([]interface{}) {
-		fields = append(fields, v.(string)[prefix:])
-
 		fNames += ","
 		fNames += v.(string)[prefix:]
+	}
+
+	if len(posts[block].([]interface{})[1:]) == 0 {
+		err = fmt.Errorf("Sin Data para insertar")
+		return
 	}
 
 	var values []string

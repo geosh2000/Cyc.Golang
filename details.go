@@ -68,7 +68,7 @@ const updtHX = `UPDATE asesores_programacion
 							AND x1s >= ADDDATE(CURDATE(), - 20) `
 
 func runBackProcess() {
-
+	sp.Stop()
 	// Inicio de LiveCalls
 	printInstructions("Proceso: Back Proccesses")
 
@@ -80,6 +80,8 @@ func runBackProcess() {
 	queryExe("Update HX", updtHX)
 	fmt.Println()
 	queryExe("Update DTs", dtDone)
+	fmt.Println()
+	runAgDetails()
 	fmt.Println()
 
 	flag := prReload(30)

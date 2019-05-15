@@ -2,9 +2,14 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
+	"net/http"
+	"net/url"
 	"os"
 	"reflect"
 	"regexp"
@@ -14,7 +19,6 @@ import (
 	"github.com/briandowns/spinner"
 	"github.com/eidolon/wordwrap"
 	_ "github.com/go-sql-driver/mysql"
-	"gopkg.in/cheggaaa/pb.v2"
 )
 
 //QM address
@@ -38,6 +42,7 @@ var okPaises = []string{
 var functions = []string{
 	"liveCalls",
 	"tdDetails",
+	"tdPauses",
 	"test",
 }
 
@@ -91,6 +96,8 @@ func main() {
 		liveCalls()
 	case "tdDetails":
 		runBackProcess()
+	case "tdPauses":
+		getPauses()
 	default:
 		printInstructions(fmt.Sprintf("El proceso \"%s\" no se encuentra aún activo\n", proceso))
 		return
@@ -102,42 +109,7 @@ func liveCalls() {
 
 	sp.Stop()
 	// Validacion de inputs
-	if len(os.Args) < 3 {
-		printInstructions("Ingresa los paises que deseas obtener, separados por un espacio:\n")
-		for _, v := range okPaises {
-			fmt.Printf("* %s\n", v)
-		}
-		fmt.Println()
-		return
-	}
-
-	var paises []string
-	var omited []string
-	for _, v := range os.Args[2:] {
-		r, _ := inArray(v, okPaises)
-		if r {
-			paises = append(paises, v)
-		} else {
-			omited = append(omited, v)
-		}
-	}
-
-	if len(paises) == 0 {
-		printInstructions("No has ingresado paises válidos. Los paises permitidos son:\n")
-		for i, v := range okPaises {
-			fmt.Printf("%2d: %s\n", i, v)
-		}
-		fmt.Println()
-		return
-	}
-
-	if len(omited) > 0 {
-		printInstructions("Paises omitidos por no estar en parámetros:\n")
-		for _, v := range omited {
-			fmt.Printf("%v | ", v)
-		}
-		fmt.Println()
-	}
+	paises := valPaises()
 
 	// Inicio de LiveCalls
 	printInstructions("Proceso: Live Calls")
@@ -251,17 +223,26 @@ func exitPrompt(prompt string, seconds int) bool {
 }
 
 func prReload(t int) bool {
+	fmt.Println()
+
 	count := t
-	tmpl := fmt.Sprintf(`{{ red "Reload in %d seconds:" }} {{bar . | green}} {{counters . | blue }}`, t)
-	bar := pb.ProgressBarTemplate(tmpl).Start(count)
-	bar.SetWidth(80)
-	defer bar.Finish()
+
+	// Original Bar
+	// tmpl := fmt.Sprintf(`{{ red "Reload in %d seconds:" }} {{bar . | green}} {{counters . | blue }}`, t)
+	// bar := pb.ProgressBarTemplate(tmpl).Start(count)
+	// bar.SetWidth(80)
+	// defer bar.Finish()
 
 	// inc := count / t
+	fmt.Printf("Wait %d seconds -> ", count)
 	for i := 0; i < t; i++ {
-		bar.Add(1)
+		// bar.Add(1)
+		fmt.Printf("%s", "#")
 		time.Sleep(time.Second)
 	}
+
+	fmt.Println()
+	fmt.Println()
 	return true
 }
 
@@ -329,4 +310,102 @@ func printStatus(m string, err error) {
 		}
 		formatPrint("", false)
 	}
+}
+
+func getFromQm(rqT string, uri string, block string, prefix int, arrFlag bool, data url.Values) (body []byte, fields []string, values [][]string, err error) {
+
+	//Get data from QM (API)
+
+	req, err := http.NewRequest(rqT, uri, bytes.NewBufferString(data.Encode()))
+	req.Header.Set("content-type", `application/x-www-form-urlencoded; param=value`)
+	req.Header.Add("Authorization", `Basic cm9ib3Q6cm9ib3Q=`)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+
+	//Convert response to readable array
+	body, err = ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return
+	}
+
+	if body == nil {
+		err = fmt.Errorf("Sin resultados")
+		return
+	}
+
+	// If array requested
+	if arrFlag {
+
+		var posts map[string]interface{}
+		json.Unmarshal(body, &posts)
+
+		if posts[block] == nil {
+			err = fmt.Errorf("Sin bloques para construir")
+			return
+		}
+
+		// Get Fields
+		for _, v := range posts[block].([]interface{})[0].([]interface{}) {
+			fields = append(fields, v.(string)[prefix:])
+		}
+
+		// Get Values
+		for _, v := range posts[block].([]interface{})[1:] {
+			var valor []string
+			for _, r := range v.([]interface{}) {
+				valor = append(valor, r.(string))
+			}
+			values = append(values, valor)
+		}
+
+	}
+
+	return
+}
+
+func valPaises() (paises []string) {
+
+	if len(os.Args) < 3 {
+		printInstructions("Ingresa los paises que deseas obtener, separados por un espacio:\n")
+		for _, v := range okPaises {
+			fmt.Printf("* %s\n", v)
+		}
+		fmt.Println()
+		os.Exit(2)
+	}
+
+	var omited []string
+	for _, v := range os.Args[2:] {
+		r, _ := inArray(v, okPaises)
+		if r {
+			paises = append(paises, v)
+		} else {
+			omited = append(omited, v)
+		}
+	}
+
+	if len(paises) == 0 {
+		printInstructions("No has ingresado paises válidos. Los paises permitidos son:\n")
+		for i, v := range okPaises {
+			fmt.Printf("%2d: %s\n", i, v)
+		}
+		fmt.Println()
+		os.Exit(2)
+	}
+
+	if len(omited) > 0 {
+		printInstructions("Paises omitidos por no estar en parámetros:\n")
+		for _, v := range omited {
+			fmt.Printf("%v | ", v)
+		}
+		fmt.Println()
+	}
+
+	return
+
 }

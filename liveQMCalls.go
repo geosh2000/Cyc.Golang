@@ -1,11 +1,8 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
-	"net/http"
 	"net/url"
 	"sort"
 	"strings"
@@ -30,54 +27,63 @@ func runLiveCalls(paises []string) {
 
 	formatPrint("Getting OUT queues", true)
 	qOut, err := fDb.Query("SELECT queue FROM Cola_Skill WHERE direction=2")
-	defer qOut.Close()
 	printStatus("", err)
+	if err != nil {
+		formatPrint("", false)
+		printFrame(tl, false)
+	} else {
 
-	formatPrint("Building OUT queues", true)
-	var outQs []string
-	for qOut.Next() {
-		var queue string
-		// for each row, scan the result into our tag composite object
-		err = qOut.Scan(&queue)
-		if err != nil {
-			fmt.Println(err.Error())
+		defer qOut.Close()
+		formatPrint("Building OUT queues", true)
+		var outQs []string
+		for qOut.Next() {
+			var queue string
+			// for each row, scan the result into our tag composite object
+			err = qOut.Scan(&queue)
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			outQs = append(outQs, queue)
 		}
-		outQs = append(outQs, queue)
-	}
-	printStatus("", err)
+		printStatus("", err)
 
-	for _, pais := range paises {
+		for _, pais := range paises {
 
-		base := "liveMonitor"
-		if pais == "MX" {
-			base += "MX"
+			base := "liveMonitor"
+			if pais == "MX" {
+				base += "MX"
+			}
+
+			formatPrint(fmt.Sprintf("Building Live Calls query %s", pais), true)
+			query, qTn, err := qmCalls(pais, outQs, base)
+			_ = query
+			printStatus("", err)
+
+			if err != nil {
+				continue
+			}
+
+			formatPrint(fmt.Sprintf("Flag update to 1 %s", pais), true)
+			updtFlagQ := fmt.Sprintf("UPDATE %s SET updateFlag = %d", base, 0)
+			r, err := fDbXp.Exec(updtFlagQ)
+			_ = r
+			printStatus("", err)
+
+			formatPrint(fmt.Sprintf("Inserting to DB %s", pais), true)
+			q, err := fDbXp.Exec(query)
+			_ = q
+			printStatus("", err)
+
+			formatPrint(fmt.Sprintf("Updating missing regs %s", pais), true)
+			updtFlagQ = fmt.Sprintf(qTn)
+			ru, err := fDbXp.Exec(updtFlagQ)
+			_ = ru
+			printStatus("", err)
 		}
 
-		formatPrint(fmt.Sprintf("Flag update to 1 %s", pais), true)
-		updtFlagQ := fmt.Sprintf("UPDATE %s SET updateFlag = %d", base, 0)
-		r, err := fDbXp.Exec(updtFlagQ)
-		_ = r
-		printStatus("", err)
-
-		formatPrint(fmt.Sprintf("Building Live Calls query %s", pais), true)
-		query, qTn, err := qmCalls(pais, outQs, base)
-		_ = query
-		printStatus("", err)
-
-		formatPrint(fmt.Sprintf("Inserting to DB %s", pais), true)
-		q, err := fDbXp.Exec(query)
-		_ = q
-		printStatus("", err)
-
-		formatPrint(fmt.Sprintf("Updating missing regs %s", pais), true)
-		updtFlagQ = fmt.Sprintf(qTn)
-		ru, err := fDbXp.Exec(updtFlagQ)
-		_ = ru
-		printStatus("", err)
+		formatPrint("", false)
+		printFrame(tl, false)
 	}
-
-	formatPrint("", false)
-	printFrame(tl, false)
 
 }
 
@@ -94,32 +100,23 @@ func qmCalls(pais string, outQs []string, b string) (query string, queryToNull s
 		uri = uriCO[0]
 	}
 
-	req, err := http.NewRequest("POST", uri, bytes.NewBufferString(data.Encode()))
-	req.Header.Set("content-type", `application/x-www-form-urlencoded; param=value`)
-	req.Header.Add("Authorization", `Basic cm9ib3Q6cm9ib3Q=`)
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		return
-	}
-	defer resp.Body.Close()
-
-	//Convert response to readable array
-	body, _ := ioutil.ReadAll(resp.Body)
+	body, fields, _, err := getFromQm("POST", uri, block, prefix, true, data)
 	if err != nil {
 		return
 	}
 
 	var posts map[string]interface{}
+
+	if body == nil {
+		err = fmt.Errorf("Información Nula")
+		return
+	}
+
 	json.Unmarshal(body, &posts)
 
 	// Get Fields
-	var fields []string
 	fNames := "updateFlag,Agent"
 	for _, v := range posts[block].([]interface{})[0].([]interface{}) {
-		fields = append(fields, v.(string)[prefix:])
-
 		fNames += ","
 		fNames += v.(string)[prefix:]
 	}
@@ -130,6 +127,11 @@ func qmCalls(pais string, outQs []string, b string) (query string, queryToNull s
 	_, rtA := inArray("RT_answered", fields)
 	_, rtAg := inArray("RT_agent", fields)
 	_, rtSi := inArray("RT_serverId", fields)
+
+	if len(posts[block].([]interface{})[1:]) == 0 {
+		err = fmt.Errorf("Sin Data para insertar")
+		return
+	}
 
 	// Create Array for sorting
 	var vals [][]string
